@@ -5,6 +5,7 @@
 
 #include <common.h>
 #include <dm.h>
+#include <log.h>
 #include <malloc.h>
 #include <power-domain.h>
 #include <power-domain-uclass.h>
@@ -116,7 +117,7 @@ static int dev_power_domain_ctrl(struct udevice *dev, bool on)
 	int i, count, ret = 0;
 
 	count = dev_count_phandle_with_args(dev, "power-domains",
-					    "#power-domain-cells");
+					    "#power-domain-cells", 0);
 	for (i = 0; i < count; i++) {
 		ret = power_domain_get_by_index(dev, &pd, i);
 		if (ret)
@@ -126,6 +127,17 @@ static int dev_power_domain_ctrl(struct udevice *dev, bool on)
 		else
 			ret = power_domain_off(&pd);
 	}
+
+	/*
+	 * For platforms with parent and child power-domain devices
+	 * we may not run device_remove() on the power-domain parent
+	 * because it will result in removing its children and switching
+	 * off their power-domain parent. So we will get here again and
+	 * again and will be stuck in an endless loop.
+	 */
+	if (!on && dev_get_parent(dev) == pd.dev &&
+	    device_get_uclass_id(dev) == UCLASS_POWER_DOMAIN)
+		return ret;
 
 	/*
 	 * power_domain_get() bound the device, thus
